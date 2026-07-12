@@ -26,7 +26,7 @@ class DebaterCard(QGroupBox):
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("مثلاً: ایلان ماسک")
         name_layout.addWidget(name_label)
-        name_layout.addWidget(self.name_input)
+        name_layout.addWidget(self.name_input, 1)
         layout.addLayout(name_layout)
 
         # پرامپت
@@ -39,7 +39,7 @@ class DebaterCard(QGroupBox):
             "مثال: شما ایلان ماسک هستید، مدیرعامل تسلا و اسپیس‌ایکس. "
             "دیدگاه مثبت به هوش مصنوعی دارید و معتقدید AI آینده بشریت را نجات می‌دهد."
         )
-        self.prompt_input.setMinimumHeight(100)
+        self.prompt_input.setMinimumHeight(150)
         layout.addWidget(self.prompt_input)
 
         # دکمه بهینه‌سازی

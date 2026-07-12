@@ -12,6 +12,7 @@ class DebateOutput(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("panel_frame")
         self._setup_ui()
         self._turns: list[DebateTurn] = []
 

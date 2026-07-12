@@ -57,12 +57,15 @@ class MainWindow(QMainWindow):
         # === ستون چپ: تنظیمات ===
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
-        left_scroll.setMaximumWidth(500)
+        left_scroll.setMinimumWidth(440)
+        left_scroll.setMaximumWidth(520)
         left_scroll.setFrameShape(QFrame.NoFrame)
 
         left_widget = QWidget()
+        left_widget.setObjectName("panel_frame")
         left_layout = QVBoxLayout()
         left_layout.setSpacing(15)
+        left_layout.setContentsMargins(18, 18, 18, 18)
 
         # عنوان
         title = QLabel("🎭 DebateAI")
@@ -71,7 +74,7 @@ class MainWindow(QMainWindow):
 
         # موضوع
         topic_layout = QHBoxLayout()
-        topic_layout.addWidget(QLabel("📌 موضوع مناظره:"))
+        topic_layout.addWidget(QLabel("موضوع مناظره:"))
         self.topic_input = QLineEdit()
         self.topic_input.setPlaceholderText("مثلاً: آینده هوش مصنوعی در مشاغل")
         topic_layout.addWidget(self.topic_input)
@@ -79,7 +82,7 @@ class MainWindow(QMainWindow):
 
         # تعداد نوبت‌ها
         turns_layout = QHBoxLayout()
-        turns_layout.addWidget(QLabel("🔄 تعداد نوبت (هر طرف):"))
+        turns_layout.addWidget(QLabel("تعداد نوبت (هر طرف):"))
         self.turns_spin = QSpinBox()
         self.turns_spin.setRange(1, 100)
         self.turns_spin.setValue(MAX_TURNS_DEFAULT)
@@ -135,6 +138,8 @@ class MainWindow(QMainWindow):
 
         # === ستون راست: خروجی ===
         self.output_widget = DebateOutput()
+        self.output_widget.setObjectName("panel_frame")
+        self.output_widget.setMinimumWidth(700)
         self.output_widget.save_btn.clicked.connect(self._on_save_file)
         main_layout.addWidget(self.output_widget, stretch=1)
 
