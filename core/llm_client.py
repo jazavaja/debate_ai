@@ -1,8 +1,15 @@
 # core/llm_client.py
-import json
-import requests
-from typing import Optional, Dict, Any
-from config import LLM_API_KEY, LLM_MODEL, LLM_PROVIDER, TEMPERATURE
+from config import (
+    LLM_API_KEY,
+    LLM_MODEL,
+    LLM_PROVIDER,
+    LLM_BASE_URI,
+    LLM_AUTH_HEADER_NAME,
+    LLM_AUTH_TOKEN_PREFIX,
+    LLM_API_PATH,
+    TEMPERATURE,
+)
+from .providers import create_provider
 
 
 class LLMClient:
@@ -15,24 +22,20 @@ class LLMClient:
         self.provider = provider
         self.api_key = api_key
         self.model = LLM_MODEL
+        self.base_uri = LLM_BASE_URI
+        self.auth_header_name = LLM_AUTH_HEADER_NAME
+        self.auth_token_prefix = LLM_AUTH_TOKEN_PREFIX
+        self.api_path = LLM_API_PATH
 
-        self._setup_endpoints()
-
-    def _setup_endpoints(self):
-        if self.provider == "openai":
-            self.base_url = "https://api.openai.com/v1"
-            self.headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
-        elif self.provider == "anthropic":
-            self.base_url = "https://api.anthropic.com/v1"
-            self.headers = {
-                "x-api-key": self.api_key,
-                "Content-Type": "application/json"
-            }
-        else:
-            raise ValueError(f"Provider {self.provider} پشتیبانی نمی‌شود")
+        self.provider_impl = create_provider(
+            provider_name=self.provider,
+            base_uri=self.base_uri,
+            api_key=self.api_key,
+            model=self.model,
+            auth_header_name=self.auth_header_name,
+            auth_token_prefix=self.auth_token_prefix,
+            api_path=self.api_path,
+        )
 
     def chat(self, system_prompt: str, user_prompt: str, temperature: float = TEMPERATURE) -> str:
         """
@@ -47,48 +50,10 @@ class LLMClient:
             پاسخ متنی LLM
         """
         try:
-            if self.provider == "openai":
-                return self._call_openai(system_prompt, user_prompt, temperature)
-            elif self.provider == "anthropic":
-                return self._call_anthropic(system_prompt, user_prompt, temperature)
+            return self.provider_impl.chat(system_prompt, user_prompt, temperature)
         except Exception as e:
             return f"[خطا در اتصال به LLM: {str(e)}]"
 
-    def _call_openai(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
-        url = f"{self.base_url}/chat/completions"
-
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": temperature,
-            "max_tokens": 2000
-        }
-
-        response = requests.post(url, headers=self.headers, json=payload, timeout=60)
-        response.raise_for_status()
-
-        data = response.json()
-        return data['choices'][0]['message']['content'].strip()
-
-    def _call_anthropic(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
-        url = f"{self.base_url}/messages"
-
-        payload = {
-            "model": self.model,
-            "max_tokens": 2000,
-            "temperature": temperature,
-            "system": system_prompt,
-            "messages": [{"role": "user", "content": user_prompt}]
-        }
-
-        response = requests.post(url, headers=self.headers, json=payload, timeout=60)
-        response.raise_for_status()
-
-        data = response.json()
-        return data['content'][0]['text'].strip()
 
     def optimize_prompt(self, original_prompt: str, purpose: str) -> str:
         """
