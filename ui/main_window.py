@@ -1,6 +1,6 @@
 # ui/main_window.py
 import os
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QLineEdit, QSpinBox, QPushButton,
                              QMessageBox, QFileDialog, QScrollArea, QFrame)
 from PyQt5.QtCore import Qt
@@ -26,7 +26,16 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("🎭 DebateAI - پلتفرم مناظره هوشمند")
-        self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            self.setMinimumSize(
+                min(WINDOW_WIDTH, available.width()),
+                min(WINDOW_HEIGHT, available.height())
+            )
+        else:
+            self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
         # Initialize core components
         self.llm_client = LLMClient()
@@ -45,6 +54,7 @@ class MainWindow(QMainWindow):
 
         self._setup_ui()
         self.setStyleSheet(DARK_THEME)
+        self.showMaximized()
 
     def _setup_ui(self):
         central = QWidget()
