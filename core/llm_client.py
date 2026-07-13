@@ -102,33 +102,28 @@ class LLMClient:
             return True
         return False
 
-    def chat_stream(self, system_prompt: str, user_prompt: str, on_chunk: Callable[[str], None], temperature: float = TEMPERATURE) -> None:
-        """
-        Stream the chat response from the underlying provider, with retry logic.
-
-        Calls `on_chunk(str)` for every arrived text fragment. Retries up to
-        `max_retries=3` on transient errors (502,503,504, timeout, ResourceExhausted)
-        with exponential backoff delays 2s,4s,8s.
-        """
+    def chat_stream(self, system_prompt, user_prompt, on_chunk, temperature=TEMPERATURE):
         max_retries = 3
-        delays = [2, 4, 8]
-        last_error = None
+        delays = [8, 16, 32]
 
         for attempt in range(max_retries):
+            got_any_chunk = False
+
+            def tracking_on_chunk(text):
+                nonlocal got_any_chunk
+                got_any_chunk = True
+                on_chunk(text)
+
             try:
-                # provider_impl.chat_stream is expected to call on_chunk repeatedly
-                self.provider_impl.chat_stream(system_prompt, user_prompt, temperature, on_chunk)
+                self.provider_impl.chat_stream(system_prompt, user_prompt, temperature, tracking_on_chunk)
                 return
             except Exception as e:
-                last_error = e
-                if self._is_retryable_exception(e) and attempt < max_retries - 1:
-                    delay = delays[attempt] if attempt < len(delays) else delays[-1]
-                    time.sleep(delay)
-                    continue
-                else:
-                    # Non-retryable or retries exhausted: inform UI and stop
-                    try:
-                        on_chunk(f"[خطا در LLM: {str(e)}]")
-                    except Exception:
-                        pass
+                if got_any_chunk:
+                    # نصفه رسیده، دیگه retry بی‌فایده‌ست چون تکراری میشه
+                    on_chunk(f"\n[خطا در ادامه استریم: {str(e)}]")
                     return
+                if self._is_retryable_exception(e) and attempt < max_retries - 1:
+                    time.sleep(delays[attempt])
+                    continue
+                on_chunk(f"[خطا در LLM: {str(e)}]")
+                return
