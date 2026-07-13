@@ -83,4 +83,4 @@ class DebaterCard(QGroupBox):
     def set_data(self, name: str, prompt: str):
         """ست کردن نام و پرامپت"""
         self.name_input.setText(name)
-        self.prompt_input.setPlainText(prompt)
+        self.prompt_input.setMarkdown(prompt)
