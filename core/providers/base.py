@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Callable
 
 
 class LLMProvider(ABC):
@@ -26,4 +27,19 @@ class LLMProvider(ABC):
 
     @abstractmethod
     def chat(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
+        raise NotImplementedError
+    
+    @abstractmethod
+    def chat_stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        on_chunk: Callable[[str], None],
+    ) -> None:
+        """
+        Stream the chat response. Call `on_chunk(chunk)` for every received text chunk.
+        Implementations should perform network streaming and invoke the callback
+        as soon as each piece of text is available.
+        """
         raise NotImplementedError

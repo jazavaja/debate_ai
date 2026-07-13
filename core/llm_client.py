@@ -10,6 +10,9 @@ from config import (
     TEMPERATURE,
 )
 from .providers import create_provider
+import time
+import requests
+from typing import Callable
 
 
 class LLMClient:
@@ -84,3 +87,48 @@ class LLMClient:
 لطفاً این پرامپت را بهینه کنید:"""
 
         return self.chat(optimization_system, optimization_user, temperature=0.3)
+
+    def _is_retryable_exception(self, e: Exception) -> bool:
+        # Network / transient HTTP errors and explicit ResourceExhausted
+        if isinstance(e, requests.exceptions.Timeout):
+            return True
+        if isinstance(e, requests.exceptions.RequestException):
+            status = None
+            if getattr(e, "response", None) is not None:
+                status = getattr(e.response, "status_code", None)
+            if status in (502, 503, 504):
+                return True
+        if "ResourceExhausted" in str(e) or "resource exhausted" in str(e).lower():
+            return True
+        return False
+
+    def chat_stream(self, system_prompt: str, user_prompt: str, on_chunk: Callable[[str], None], temperature: float = TEMPERATURE) -> None:
+        """
+        Stream the chat response from the underlying provider, with retry logic.
+
+        Calls `on_chunk(str)` for every arrived text fragment. Retries up to
+        `max_retries=3` on transient errors (502,503,504, timeout, ResourceExhausted)
+        with exponential backoff delays 2s,4s,8s.
+        """
+        max_retries = 3
+        delays = [2, 4, 8]
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                # provider_impl.chat_stream is expected to call on_chunk repeatedly
+                self.provider_impl.chat_stream(system_prompt, user_prompt, temperature, on_chunk)
+                return
+            except Exception as e:
+                last_error = e
+                if self._is_retryable_exception(e) and attempt < max_retries - 1:
+                    delay = delays[attempt] if attempt < len(delays) else delays[-1]
+                    time.sleep(delay)
+                    continue
+                else:
+                    # Non-retryable or retries exhausted: inform UI and stop
+                    try:
+                        on_chunk(f"[خطا در LLM: {str(e)}]")
+                    except Exception:
+                        pass
+                    return

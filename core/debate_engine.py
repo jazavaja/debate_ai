@@ -20,7 +20,9 @@ class DebateEngineThread(QThread):
     موتور اصلی مناظره در ترد جداگانه
     """
     turn_generated = pyqtSignal(DebateTurn)  # هر نوبت تولید شد
+    turn_chunk = pyqtSignal(int, str)  # (turn_number, chunk)
     debate_finished = pyqtSignal(str)  # مناظره تموم شد
+    debate_conclusion_chunk = pyqtSignal(str)
     error_occurred = pyqtSignal(str)  # خطا رخ داد
     progress_updated = pyqtSignal(int, int)  # (current, total)
 
@@ -63,12 +65,21 @@ class DebateEngineThread(QThread):
 {current_debater.prompt}"""
 
                 # فراخوانی LLM
-                response = self.llm_client.chat(system_prompt, user_prompt)
+                response_text = ""
 
-                # ایجاد نوبت
+                def _on_chunk(chunk: str):
+                    nonlocal response_text
+                    response_text += chunk
+                    # emit incremental chunk with turn number
+                    self.turn_chunk.emit(turn + 1, chunk)
+
+                # stream the response using llm_client with retry logic
+                self.llm_client.chat_stream(system_prompt, user_prompt, _on_chunk)
+
+                # when finished, create final turn and emit
                 debate_turn = DebateTurn(
                     speaker=current_debater.name,
-                    content=response,
+                    content=response_text,
                     turn_number=turn + 1
                 )
 
@@ -76,10 +87,21 @@ class DebateEngineThread(QThread):
                 self.turn_generated.emit(debate_turn)
                 self.progress_updated.emit(turn + 1, total_turns)
 
-            # تولید نتیجه‌گیری مجری
+            # تولید نتیجه‌گیری مجری (streaming)
             if self._is_running:
-                conclusion = self._generate_conclusion(debate_history)
-                self.debate_finished.emit(conclusion)
+                # stream conclusion and emit conclusion chunks
+                conclusion_text = ""
+
+                def _on_conclusion_chunk(chunk: str):
+                    nonlocal conclusion_text
+                    conclusion_text += chunk
+                    self.debate_conclusion_chunk.emit(chunk)
+
+                moderator_system, moderator_user = self._build_moderator_prompts(debate_history)
+                self.llm_client.chat_stream(moderator_system, moderator_user, _on_conclusion_chunk, temperature=0.5)
+
+                # once done, emit final conclusion
+                self.debate_finished.emit(conclusion_text)
 
         except Exception as e:
             self.error_occurred.emit(str(e))
@@ -100,8 +122,32 @@ class DebateEngineThread(QThread):
         return "\n".join(prompt_parts)
 
     def _generate_conclusion(self, history: List[DebateTurn]) -> str:
-        """تولید نتیجه‌گیری توسط مجری"""
-        # خلاصه مناظره برای مجری
+        """Deprecated: streaming version is used in `run`. Keep for compatibility."""
+        debate_summary = "\n\n".join([
+            f"{turn.speaker}:\n{turn.content}"
+            for turn in history
+        ])
+
+        moderator_system = f"""شما مجری و داور یک مناظره هوشمند هستید.
+    {self.config.moderator.prompt}
+
+    وظیفه شما:
+    1. تحلیل نقاط قوت و ضعف استدلال‌های طرفین
+    2. ارائه نتیجه‌گیری بی‌طرفانه
+    3. خلاصه‌ای از مباحث مطرح شده
+
+    فقط متن نتیجه‌گیری را بنویسید، بدون مقدمه."""
+
+        moderator_user = f"""موضوع مناظره: {self.config.topic}
+
+    متن کامل مناظره:
+    {debate_summary}
+
+    لطفاً نتیجه‌گیری و تحلیل خود را ارائه دهید:"""
+
+        return self.llm_client.chat(moderator_system, moderator_user, temperature=0.5)
+
+    def _build_moderator_prompts(self, history: List[DebateTurn]):
         debate_summary = "\n\n".join([
             f"{turn.speaker}:\n{turn.content}"
             for turn in history
@@ -124,7 +170,7 @@ class DebateEngineThread(QThread):
 
 لطفاً نتیجه‌گیری و تحلیل خود را ارائه دهید:"""
 
-        return self.llm_client.chat(moderator_system, moderator_user, temperature=0.5)
+        return moderator_system, moderator_user
 
     def stop(self):
         self._is_running = False
@@ -144,7 +190,9 @@ class DebateEngine:
                      on_turn: Callable,
                      on_finish: Callable,
                      on_error: Callable,
-                     on_progress: Callable) -> DebateEngineThread:
+                     on_progress: Callable,
+                     on_chunk: Callable = None,
+                     on_conclusion_chunk: Callable = None) -> DebateEngineThread:
         """
         شروع مناظره جدید
 
@@ -163,7 +211,11 @@ class DebateEngine:
 
         thread = DebateEngineThread(self.llm_client, config)
         thread.turn_generated.connect(on_turn)
+        if on_chunk:
+            thread.turn_chunk.connect(on_chunk)
         thread.debate_finished.connect(on_finish)
+        if on_conclusion_chunk:
+            thread.debate_conclusion_chunk.connect(on_conclusion_chunk)
         thread.error_occurred.connect(on_error)
         thread.progress_updated.connect(on_progress)
 

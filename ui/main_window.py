@@ -55,6 +55,8 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self.setStyleSheet(DARK_THEME)
         self.showMaximized()
+        # track active streaming turns to initialize headers once
+        self._active_streaming_turns = set()
 
     def _setup_ui(self):
         central = QWidget()
@@ -215,7 +217,9 @@ class MainWindow(QMainWindow):
             on_turn=self._on_turn_generated,
             on_finish=self._on_debate_finished,
             on_error=self._on_debate_error,
-            on_progress=self._on_progress_updated
+            on_progress=self._on_progress_updated,
+            on_chunk=self._on_turn_chunk,
+            on_conclusion_chunk=self._on_conclusion_chunk
         )
 
     def _on_stop_debate(self):
@@ -227,8 +231,32 @@ class MainWindow(QMainWindow):
 
     def _on_turn_generated(self, turn: DebateTurn):
         """هر نوبت تولید شد"""
-        self.output_widget.add_turn(turn)
         self._current_debate_data['turns'].append(turn)
+        if turn.turn_number in self._active_streaming_turns:
+            self.output_widget.finalize_streamed_turn(turn)
+            self._active_streaming_turns.discard(turn.turn_number)
+            return
+        self.output_widget.add_turn(turn)
+
+    def _on_turn_chunk(self, turn_number: int, chunk: str):
+        """هندل هر chunk برای یک نوبت: اطمینان از هدر و درج جزئی"""
+        if turn_number not in self._active_streaming_turns:
+            # اولین chunk برای این نوبت: اضافه کردن هدر
+            # speaker unknown here, rely on turn_number ordering
+            # attempt to map to debater names: odd/even
+            if turn_number % 2 == 1:
+                speaker = self._current_debate_data.get('debater1_name', 'طرف اول')
+            else:
+                speaker = self._current_debate_data.get('debater2_name', 'طرف دوم')
+            self.output_widget.start_turn_stream(turn_number, speaker)
+            self._active_streaming_turns.add(turn_number)
+
+        # append the chunk to the UI
+        self.output_widget.append_turn_chunk(turn_number, chunk)
+
+    def _on_conclusion_chunk(self, chunk: str):
+        """هندل chunkهای نتیجه‌گیری مجری (streaming)"""
+        self.output_widget.append_turn_chunk(0, chunk)
 
     def _on_debate_finished(self, conclusion: str):
         """مناظره تموم شد"""

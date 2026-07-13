@@ -1,8 +1,9 @@
 # ui/widgets/debate_output.py
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QTextEdit, QPushButton, QProgressBar, QMessageBox)
+                             QTextBrowser, QPushButton, QProgressBar, QMessageBox)
 from PyQt5.QtCore import Qt
 from core.debate_engine import DebateTurn
+import markdown2
 
 
 class DebateOutput(QWidget):
@@ -15,6 +16,7 @@ class DebateOutput(QWidget):
         self.setObjectName("panel_frame")
         self._setup_ui()
         self._turns: list[DebateTurn] = []
+        self._stream_buffers: dict[int, str] = {}
 
     def _setup_ui(self):
         layout = QVBoxLayout()
@@ -40,8 +42,8 @@ class DebateOutput(QWidget):
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
 
-        # تکست اریای خروجی
-        self.output_text = QTextEdit()
+        # تکست اریای خروجی (QTextBrowser برای رندر HTML/Markdown)
+        self.output_text = QTextBrowser()
         self.output_text.setObjectName("output_area")
         self.output_text.setReadOnly(True)
         self.output_text.setPlaceholderText(
@@ -56,25 +58,51 @@ class DebateOutput(QWidget):
         """اضافه کردن یک نوبت به خروجی"""
         self._turns.append(turn)
 
-        # فرمت نمایش
-        text = f"\n{'=' * 60}\n"
-        text += f"【 نوبت {turn.turn_number} | {turn.speaker} 】\n"
-        text += f"{'=' * 60}\n\n"
-        text += f"{turn.content}\n"
+        # فرمت نمایش نهایی با تبدیل Markdown به HTML
+        header = f"<hr><h3>نوبت {turn.turn_number} | {turn.speaker}</h3>"
+        html = markdown2.markdown(turn.content)
+        self.output_text.append(header + html)
+        self.output_text.verticalScrollBar().setValue(self.output_text.verticalScrollBar().maximum())
 
-        self.output_text.append(text)
-        self.output_text.verticalScrollBar().setValue(
-            self.output_text.verticalScrollBar().maximum()
-        )
+        self.save_btn.setEnabled(True)
+
+    def start_turn_stream(self, turn_number: int, speaker: str):
+        """شروع بخش استریم برای یک نوبت جدید - اضافه کردن هدر اولیه"""
+        header = f"<hr><h3>نوبت {turn_number} | {speaker}</h3>"
+        self.output_text.append(header)
+        self.output_text.verticalScrollBar().setValue(self.output_text.verticalScrollBar().maximum())
+
+    def append_turn_chunk(self, turn_number: int, chunk: str):
+        """افزودن chunk جریان متنی: ذخیره و نمایش متن خام تا تکمیل نوبت"""
+        if not chunk:
+            return
+        if turn_number not in self._stream_buffers:
+            self._stream_buffers[turn_number] = ""
+        self._stream_buffers[turn_number] += chunk
+        self.output_text.insertPlainText(chunk)
+        self.output_text.verticalScrollBar().setValue(self.output_text.verticalScrollBar().maximum())
+
+    def finalize_streamed_turn(self, turn: DebateTurn):
+        """وقتی نوبت کامل شد، متن کامل را به صورت Markdown رندر می‌کند."""
+        self._stream_buffers.pop(turn.turn_number, None)
+        if not any(existing.turn_number == turn.turn_number for existing in self._turns):
+            self._turns.append(turn)
+        self._render_all_turns()
+        self.save_btn.setEnabled(True)
+
+    def _render_all_turns(self):
+        self.output_text.clear()
+        for turn in self._turns:
+            header = f"<hr><h3>نوبت {turn.turn_number} | {turn.speaker}</h3>"
+            html = markdown2.markdown(turn.content)
+            self.output_text.append(header + html)
+        self.output_text.verticalScrollBar().setValue(self.output_text.verticalScrollBar().maximum())
 
     def set_conclusion(self, conclusion: str):
         """نمایش نتیجه‌گیری"""
-        text = f"\n{'=' * 60}\n"
-        text += f"【 نتیجه‌گیری مجری 】\n"
-        text += f"{'=' * 60}\n\n"
-        text += f"{conclusion}\n"
-
-        self.output_text.append(text)
+        header = f"<hr><h2>نتیجه‌گیری مجری</h2>"
+        html = markdown2.markdown(conclusion)
+        self.output_text.append(header + html)
         self.save_btn.setEnabled(True)
         self.progress.setVisible(False)
 
