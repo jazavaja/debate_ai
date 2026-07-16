@@ -9,6 +9,7 @@ from core.llm_client import LLMClient
 from core.prompt_optimizer import PromptOptimizer
 from core.debate_engine import DebateEngine
 from models.debate_config import DebateConfig
+from models.debate_project import DebateProject
 from models.debater import Debater
 from ui.styles import DARK_THEME
 from ui.widgets.debater_card import DebaterCard
@@ -130,6 +131,23 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self._on_stop_debate)
         btn_layout.addWidget(self.stop_btn)
+
+        left_layout.addLayout(btn_layout)
+
+        # دکمه‌های ذخیره و بارگذاری پروژه
+        project_btn_layout = QHBoxLayout()
+
+        self.save_project_btn = QPushButton("💾 ذخیره پروژه")
+        self.save_project_btn.setObjectName("save_btn")
+        self.save_project_btn.clicked.connect(self._on_save_project)
+        project_btn_layout.addWidget(self.save_project_btn)
+
+        self.load_project_btn = QPushButton("📂 بارگذاری پروژه")
+        self.load_project_btn.setObjectName("load_btn")
+        self.load_project_btn.clicked.connect(self._on_load_project)
+        project_btn_layout.addWidget(self.load_project_btn)
+
+        left_layout.addLayout(project_btn_layout)
 
         left_layout.addLayout(btn_layout)
 
@@ -298,6 +316,92 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "❌ خطا", f"خطا در ذخیره فایل:\n{str(e)}")
+
+    def _on_save_project(self):
+        """ذخیره پروژه به فایل JSON"""
+        try:
+            config = DebateConfig(
+                topic=self.topic_input.text().strip(),
+                debater1=Debater(name=self.debater1_card.name_input.text().strip(),
+                                 prompt=self.debater1_card.prompt_input.toPlainText().strip()),
+                debater2=Debater(name=self.debater2_card.name_input.text().strip(),
+                                 prompt=self.debater2_card.prompt_input.toPlainText().strip()),
+                moderator=Debater(name=self.moderator_card.name_input.text().strip(),
+                                  prompt=self.moderator_card.prompt_input.toPlainText().strip(),
+                                  role="moderator"),
+                max_turns=self.turns_spin.value()
+            )
+
+            project = DebateProject(
+                config=config,
+                turns=self._current_debate_data['turns'],
+                conclusion=self._current_debate_data['conclusion']
+            )
+
+            filepath, _ = QFileDialog.getSaveFileName(
+                self,
+                "ذخیره پروژه مناظره",
+                "projects",
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if filepath:
+                FileHandler.save_project_json(project, filepath)
+                QMessageBox.information(self, "✅ ذخیره شد", f"پروژه ذخیره شد:\n{filepath}")
+        except Exception as e:
+            QMessageBox.critical(self, "❌ خطا", f"خطا در ذخیره پروژه:\n{str(e)}")
+
+    def _on_load_project(self):
+        """بارگذاری پروژه از فایل JSON"""
+        try:
+            filepath, _ = QFileDialog.getOpenFileName(
+                self,
+                "بارگذاری پروژه مناظره",
+                "projects",
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if filepath:
+                project = FileHandler.load_project_json(filepath)
+
+                # آپدیت UI
+                self.topic_input.setText(project.config.topic)
+                self.turns_spin.setValue(project.config.max_turns)
+
+                self.debater1_card.name_input.setText(project.config.debater1.name)
+                self.debater1_card.prompt_input.setPlainText(project.config.debater1.prompt)
+
+                self.debater2_card.name_input.setText(project.config.debater2.name)
+                self.debater2_card.prompt_input.setPlainText(project.config.debater2.prompt)
+
+                self.moderator_card.name_input.setText(project.config.moderator.name)
+                self.moderator_card.prompt_input.setPlainText(project.config.moderator.prompt)
+
+                # بارگذاری نتایج
+                self.output_widget.reset()
+                if project.turns:
+                    for turn in project.turns:
+                        self.output_widget.add_turn(turn)
+                if project.conclusion:
+                    self.output_widget.set_conclusion(project.conclusion)
+
+                # آپدیت state
+                self._current_debate_data.update({
+                    'topic': project.config.topic,
+                    'debater1_name': project.config.debater1.name,
+                    'debater1_prompt': project.config.debater1.prompt,
+                    'debater2_name': project.config.debater2.name,
+                    'debater2_prompt': project.config.debater2.prompt,
+                    'moderator_name': project.config.moderator.name,
+                    'moderator_prompt': project.config.moderator.prompt,
+                    'turns': project.turns,
+                    'conclusion': project.conclusion
+                })
+
+                QMessageBox.information(self, "✅ بارگذاری شد", f"پروژه بارگذاری شد:\n{filepath}")
+        except Exception as e:
+            QMessageBox.critical(self, "❌ خطا", f"خطا در بارگذاری پروژه:\n{str(e)}")
+
 
     def closeEvent(self, event):
         """بستن اپلیکیشن"""

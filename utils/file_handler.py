@@ -3,7 +3,9 @@ import os
 from datetime import datetime
 from typing import List
 from core.debate_engine import DebateTurn
-
+import json
+from typing import Any
+from models.debate_project import DebateProject
 
 class FileHandler:
     """
@@ -128,3 +130,49 @@ class FileHandler:
         ])
 
         return "\n".join(lines)
+
+
+
+    @staticmethod
+    def save_project_json(project: DebateProject, filepath: str) -> str:
+        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(project.to_dict(), f, ensure_ascii=False, indent=2)
+        return filepath
+
+    @staticmethod
+    def load_project_json(filepath: str) -> DebateProject:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return DebateProject.from_dict(data)
+
+    @staticmethod
+    def save_project_text(project: DebateProject, filepath: str) -> str:
+        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+        lines = []
+        cfg = project.config
+        lines.append(f"عنوان مناظره: {cfg.topic}")
+        lines.append(f"تعداد نوبت (هر طرف): {cfg.max_turns}")
+        lines.append("")
+        lines.append(f"مجری: {cfg.moderator.name}")
+        lines.append(cfg.moderator.prompt or "")
+        lines.append("")
+        lines.append(f"طرف اول: {cfg.debater1.name}")
+        lines.append(cfg.debater1.prompt or "")
+        lines.append("")
+        lines.append(f"طرف دوم: {cfg.debater2.name}")
+        lines.append(cfg.debater2.prompt or "")
+        lines.append("")
+        lines.append("=== متن مناظره ===")
+        for t in project.turns:
+            lines.append(f"نوبت {t.turn_number} — {t.speaker}:")
+            lines.append(t.content)
+            lines.append("")
+        lines.append("=== نتیجه‌گیری مجری ===")
+        lines.append(project.conclusion or "")
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write("\n".join(lines))
+        return filepath
+
+
+
