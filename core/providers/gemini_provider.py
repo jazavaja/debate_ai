@@ -35,34 +35,27 @@ User:
 
         return (interaction.output_text or "").strip()
 
-
     def chat_stream(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        temperature: float,
-        on_chunk
+            self,
+            system_prompt: str,
+            user_prompt: str,
+            temperature: float,
+            on_chunk
     ):
-        """
-        Stream پاسخ Gemini
-        """
 
         prompt = f"""
-System Instruction:
-{system_prompt}
+    System Instruction:
+    {system_prompt}
 
-User:
-{user_prompt}
-"""
+    User:
+    {user_prompt}
+    """
 
-        stream = self.client.interactions.create(
+        response = self.client.models.generate_content_stream(
             model=self.model,
-            input=prompt,
-            stream=True,
+            contents=prompt,
         )
 
-        for event in stream:
-            text = getattr(event, "text", None)
-
-            if text:
-                on_chunk(text)
+        for chunk in response:
+            if chunk.text:
+                on_chunk(chunk.text)

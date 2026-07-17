@@ -58,17 +58,21 @@ class LLMClient:
             return f"[خطا در اتصال به LLM: {str(e)}]"
 
 
-    def optimize_prompt(self, original_prompt: str, purpose: str) -> str:
+    def optimize_prompt(self, original_prompt: str, purpose: str, name: str = "") -> str:
         """
         بهینه‌سازی پرامپت با استفاده از LLM
 
         Args:
             original_prompt: پرامپت اصلی کاربر
             purpose: هدف پرامپت (مثلاً 'debater', 'moderator')
+            name: نام شخصیت
 
         Returns:
             پرامپت بهینه‌شده
         """
+        purpose_text = "مذاکره‌کننده" if purpose == "debater" else "مجری" if purpose == "moderator" else purpose
+        name_part = f"\nنام شخصیت: {name}" if name else ""
+        
         optimization_system = """شما یک متخصص Prompt Engineering هستید. پرامپت داده شده را برای استفاده در یک مناظره هوش مصنوعی بهینه کنید.
 
 قوانین بهینه‌سازی:
@@ -77,16 +81,51 @@ class LLMClient:
 3. دیدگاه‌های کلیدی باید مشخص باشند
 4. از کلی‌گویی پرهیز کنید
 5. پرامپت باید به زبان فارسی باشد
+6. اگر نام داده شده، آن نام را به‌طور مشخص درسیستم پرامپت استفاده کن
 
 فقط پرامپت بهینه‌شده را خروجی بده، بدون هیچ توضیح اضافی."""
 
-        optimization_user = f"""هدف: {purpose}
+        optimization_user = f"""نوع شخصیت: {purpose_text}{name_part}
 پرامپت فعلی:
 {original_prompt}
 
 لطفاً این پرامپت را بهینه کنید:"""
 
         return self.chat(optimization_system, optimization_user, temperature=0.3)
+
+    def optimize_prompt_stream(self, original_prompt: str, purpose: str, on_chunk, name: str = "", temperature: float = 0.3):
+        """
+        بهینه‌سازی پرامپت به صورت streaming
+
+        Args:
+            original_prompt: پرامپت اصلی کاربر
+            purpose: هدف پرامپت ('debater', 'moderator')
+            on_chunk: callback برای دریافت چانک‌ها
+            name: نام شخصیت
+            temperature: میزان خلاقیت
+        """
+        purpose_text = "مذاکره‌کننده" if purpose == "debater" else "مجری" if purpose == "moderator" else purpose
+        name_part = f"\nنام شخصیت: {name}" if name else ""
+        
+        optimization_system = """شما یک متخصص Prompt Engineering هستید. پرامپت داده شده را برای استفاده در یک مناظره هوش مصنوعی بهینه کنید.
+
+قوانین بهینه‌سازی:
+1. شخصیت باید کاملاً مشخص و قابل تمایز باشد
+2. لحن و سبک گفتار باید تعریف شود
+3. دیدگاه‌های کلیدی باید مشخص باشند
+4. از کلی‌گویی پرهیز کنید
+5. پرامپت باید به زبان فارسی باشد
+6. اگر نام داده شده، آن نام را به‌طور مشخص در سیستم پرامپت استفاده کن
+
+فقط پرامپت بهینه‌شده را خروجی بده، بدون هیچ توضیح اضافی."""
+
+        optimization_user = f"""نوع شخصیت: {purpose_text}{name_part}
+پرامپت فعلی:
+{original_prompt}
+
+لطفاً این پرامپت را بهینه کنید:"""
+
+        self.chat_stream(optimization_system, optimization_user, on_chunk, temperature)
 
     def _is_retryable_exception(self, e: Exception) -> bool:
         # Network / transient HTTP errors and explicit ResourceExhausted

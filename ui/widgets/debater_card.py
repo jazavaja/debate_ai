@@ -10,7 +10,7 @@ class DebaterCard(QGroupBox):
     شامل: نام، پرامپت، دکمه بهینه‌سازی
     """
 
-    optimize_requested = pyqtSignal(str, str)  # (current_text, purpose)
+    optimize_requested = pyqtSignal(str, str, str)  # (current_text, purpose, name)
 
     def __init__(self, title: str = "مذاکره‌کننده", parent=None):
         super().__init__(title, parent)
@@ -46,7 +46,7 @@ class DebaterCard(QGroupBox):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        self.optimize_btn = QPushButton("✨ بهینه‌سازی پرامپت")
+        self.optimize_btn = QPushButton("بهینه‌سازی پرامپت")
         self.optimize_btn.setObjectName("optimize_btn")
         self.optimize_btn.setToolTip("با LLM پرامپت را حرفه‌ای کنید")
         self.optimize_btn.clicked.connect(self._on_optimize)
@@ -61,16 +61,34 @@ class DebaterCard(QGroupBox):
             self.prompt_input.setPlaceholderText("ابتدا پرامپتی بنویسید...")
             return
 
+        name = self.name_input.text().strip()
         purpose = "debater"
         self.optimize_btn.setEnabled(False)
         self.optimize_btn.setText("⏳ در حال بهینه‌سازی...")
-        self.optimize_requested.emit(current_text, purpose)
+        self.optimize_requested.emit(current_text, purpose, name)
+
+    def begin_optimized_stream(self):
+        """شروع نمایش chunk به chunk: باکس را خالی کن"""
+        self.prompt_input.clear()
+
+    def append_optimized_chunk(self, chunk: str):
+        """افزودن یک chunk به باکس پرامپت"""
+        if not chunk:
+            return
+        cursor = self.prompt_input.textCursor()
+        cursor.movePosition(cursor.End)
+        cursor.insertText(chunk)
+        self.prompt_input.setTextCursor(cursor)
+
+    def finish_optimized_stream(self):
+        """پایان streaming و فعال‌سازی دوباره دکمه"""
+        self.optimize_btn.setEnabled(True)
+        self.optimize_btn.setText("✨ بهینه‌سازی پرامپت")
 
     def set_optimized_text(self, text: str):
         """پرامپت بهینه‌شده رو ست کن"""
         self.prompt_input.setPlainText(text)
-        self.optimize_btn.setEnabled(True)
-        self.optimize_btn.setText("✨ بهینه‌سازی پرامپت")
+        self.finish_optimized_stream()
 
     def reset_optimize_button(self):
         self.optimize_btn.setEnabled(True)

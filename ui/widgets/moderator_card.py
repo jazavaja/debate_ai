@@ -29,7 +29,8 @@ class ModeratorCard(DebaterCard):
         if not current_text:
             return
 
+        name = self.name_input.text().strip()
         purpose = "moderator"
         self.optimize_btn.setEnabled(False)
         self.optimize_btn.setText("⏳ در حال بهینه‌سازی...")
-        self.optimize_requested.emit(current_text, purpose)
+        self.optimize_requested.emit(current_text, purpose, name)

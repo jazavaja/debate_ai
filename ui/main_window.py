@@ -149,8 +149,6 @@ class MainWindow(QMainWindow):
 
         left_layout.addLayout(project_btn_layout)
 
-        left_layout.addLayout(btn_layout)
-
         # API Key
         api_layout = QHBoxLayout()
         api_layout.addWidget(QLabel("🔑 API Key:"))
@@ -175,20 +173,47 @@ class MainWindow(QMainWindow):
 
         central.setLayout(main_layout)
 
-    def _on_optimize_prompt(self, text: str, purpose: str):
-        """هندل بهینه‌سازی پرامپت"""
-        # پیدا کردن کارت فرستنده
+    def _on_optimize_prompt(self, text: str, purpose: str, name: str = ""):
+        """هندل بهینه‌سازی پرامپت با streaming"""
         sender = self.sender()
+        streaming_started = False
 
-        def on_success(optimized: str):
-            sender.set_optimized_text(optimized)
+        def on_chunk(chunk: str):
+            nonlocal streaming_started
+            if not chunk:
+                return
+            if not streaming_started:
+                sender.begin_optimized_stream()
+                streaming_started = True
+            sender.append_optimized_chunk(chunk)
+
+        def on_success(final_text: str):
+            if streaming_started:
+                sender.finish_optimized_stream()
+            elif final_text.strip():
+                sender.set_optimized_text(final_text)
+            else:
+                sender.reset_optimize_button()
+                QMessageBox.warning(self, "⚠️ خطا", "پاسخی از مدل دریافت نشد.")
+                return
             QMessageBox.information(self, "✅ موفق", "پرامپت با موفقیت بهینه شد!")
 
         def on_error(error: str):
-            sender.reset_optimize_button()
+            if streaming_started:
+                sender.finish_optimized_stream()
+            else:
+                sender.reset_optimize_button()
             QMessageBox.critical(self, "❌ خطا", f"خطا در بهینه‌سازی:\n{error}")
 
-        self.prompt_optimizer.optimize(text, purpose, on_success, on_error)
+        self.prompt_optimizer.optimize(
+            text, 
+            purpose, 
+            name=name,
+            on_chunk=on_chunk,
+            on_success=on_success,
+            on_error=on_error,
+            use_stream=True
+        )
 
     def _on_start_debate(self):
         """شروع مناظره"""
