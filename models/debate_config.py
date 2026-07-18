@@ -11,7 +11,7 @@ class DebateConfig:
     debater1: Debater = field(default_factory=lambda: Debater(name="طرف اول"))
     debater2: Debater = field(default_factory=lambda: Debater(name="طرف دوم"))
     moderator: Debater = field(default_factory=lambda: Debater(name="مجری", role="moderator"))
-    max_turns: int = 50
+    max_turns: int = 5
     temperature: float = 0.8
 
     def validate(self) -> tuple[bool, str]:
