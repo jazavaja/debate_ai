@@ -141,7 +141,14 @@ class LLMClient:
             return True
         return False
 
-    def chat_stream(self, system_prompt, user_prompt, on_chunk, temperature=TEMPERATURE):
+    def chat_stream(
+        self,
+        system_prompt,
+        user_prompt,
+        on_chunk,
+        temperature=TEMPERATURE,
+        raise_on_error: bool = False,
+    ):
         max_retries = 3
         delays = [8, 16, 32]
 
@@ -154,15 +161,21 @@ class LLMClient:
                 on_chunk(text)
 
             try:
-                self.provider_impl.chat_stream(system_prompt, user_prompt, temperature, tracking_on_chunk)
+                self.provider_impl.chat_stream(
+                    system_prompt, user_prompt, temperature, tracking_on_chunk
+                )
                 return
             except Exception as e:
                 if got_any_chunk:
-                    # نصفه رسیده، دیگه retry بی‌فایده‌ست چون تکراری میشه
-                    on_chunk(f"\n[خطا در ادامه استریم: {str(e)}]")
+                    msg = f"خطا در ادامه استریم: {str(e)}"
+                    if raise_on_error:
+                        raise RuntimeError(msg) from e
+                    on_chunk(f"\n[{msg}]")
                     return
                 if self._is_retryable_exception(e) and attempt < max_retries - 1:
                     time.sleep(delays[attempt])
                     continue
+                if raise_on_error:
+                    raise
                 on_chunk(f"[خطا در LLM: {str(e)}]")
                 return

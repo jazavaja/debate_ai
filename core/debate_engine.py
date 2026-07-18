@@ -1,44 +1,168 @@
 # core/debate_engine.py
-from typing import List, Callable, Optional
-from dataclasses import dataclass
+from typing import Callable, List, Optional
+
 from PyQt5.QtCore import QThread, pyqtSignal
-from .llm_client import LLMClient
+
+from core.llm_client import LLMClient
+from core.moderator_agent import ModeratorAction, ModeratorAgent
 from models.debate_config import DebateConfig
+from models.debate_status import DebateStatus, GenerationError, TurnType
+from models.debate_turn import DebateTurn
 from models.debater import Debater
 
-
-@dataclass
-class DebateTurn:
-    """یک نوبت از مناظره"""
-    speaker: str
-    content: str
-    turn_number: int
+# Re-export for backward compatibility
+__all__ = ["DebateTurn", "DebateEngineThread", "DebateEngine"]
 
 
 class DebateEngineThread(QThread):
-    """
-    موتور اصلی مناظره در ترد جداگانه
-    """
-    turn_generated = pyqtSignal(DebateTurn)  # هر نوبت تولید شد
-    turn_chunk = pyqtSignal(int, str)  # (turn_number, chunk)
-    debate_finished = pyqtSignal(str)  # مناظره تموم شد
-    debate_conclusion_chunk = pyqtSignal(str)
-    error_occurred = pyqtSignal(str)  # خطا رخ داد
-    progress_updated = pyqtSignal(int, int)  # (current, total)
+    """موتور اصلی مناظره در ترد جداگانه — با intro، مداخله، خطا و resume."""
 
-    def __init__(self, llm_client: LLMClient, config: DebateConfig):
+    turn_generated = pyqtSignal(DebateTurn)
+    turn_chunk = pyqtSignal(int, str)
+    turn_stream_start = pyqtSignal(int, str, str)  # turn_number, speaker, turn_type
+    debate_finished = pyqtSignal(str)
+    debate_conclusion_chunk = pyqtSignal(str)
+    error_occurred = pyqtSignal(object)  # GenerationError
+    status_changed = pyqtSignal(str)
+    progress_updated = pyqtSignal(int, int)
+
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        config: DebateConfig,
+        existing_turns: Optional[List[DebateTurn]] = None,
+        existing_conclusion: str = "",
+        resume: bool = False,
+    ):
         super().__init__()
         self.llm_client = llm_client
         self.config = config
+        self.existing_turns = list(existing_turns or [])
+        self.existing_conclusion = existing_conclusion
+        self.resume = resume
         self._is_running = True
+        self._current_step = ""
+        self._next_turn_number = self._calc_next_turn_number()
+        self._moderator = ModeratorAgent(llm_client)
 
     def run(self):
-        try:
-            debate_history: List[DebateTurn] = []
-            total_turns = self.config.max_turns * 2  # هر طرف n نوبت
+        history: List[DebateTurn] = list(self.existing_turns)
+        total_debater_turns = self.config.max_turns * 2
 
-            # سیستم پرامپت‌های پایه
-            base_system = f"""شما در یک مناظره هوش مصنوعی شرکت دارید.
+        try:
+            self._emit_status(DebateStatus.RUNNING)
+
+            # --- Step 1: Moderator Introduction ---
+            if not self._has_intro(history) and not self._is_legacy_project(history):
+                intro = self._generate_intro()
+                history.append(intro)
+                self.turn_generated.emit(intro)
+
+            if not self._is_running:
+                self._emit_status(DebateStatus.STOPPED)
+                return
+
+            # --- Step 2: Debater turns with optional moderator intervention ---
+            completed = self._count_debater_turns(history)
+
+            for turn_idx in range(completed, total_debater_turns):
+                if not self._is_running:
+                    self._emit_status(DebateStatus.STOPPED)
+                    return
+
+                is_debater1 = turn_idx % 2 == 0
+                next_debater = self.config.debater1 if is_debater1 else self.config.debater2
+
+                # Moderator decision (skip for very first debater turn right after intro)
+                if turn_idx > 0:
+                    decision = self._moderator_decide(history, next_debater.name)
+                    if decision.action != ModeratorAction.CONTINUE:
+                        intervention = self._generate_intervention(history, decision)
+                        history.append(intervention)
+                        self.turn_generated.emit(intervention)
+
+                    if not self._is_running:
+                        self._emit_status(DebateStatus.STOPPED)
+                        return
+
+                debater_turn = self._generate_debater_turn(history, turn_idx, next_debater)
+                history.append(debater_turn)
+                self.turn_generated.emit(debater_turn)
+                self.progress_updated.emit(turn_idx + 1, total_debater_turns)
+
+            if not self._is_running:
+                self._emit_status(DebateStatus.STOPPED)
+                return
+
+            # --- Step 3: Moderator Conclusion ---
+            if not self.existing_conclusion:
+                conclusion = self._generate_conclusion(history)
+                self.debate_finished.emit(conclusion)
+            else:
+                self.debate_finished.emit(self.existing_conclusion)
+
+            self._emit_status(DebateStatus.COMPLETED)
+
+        except Exception as e:
+            error = GenerationError.now(str(e), self._current_step)
+            self._emit_status(DebateStatus.FAILED)
+            self.error_occurred.emit(error)
+
+    # ------------------------------------------------------------------ #
+    # Generation steps
+    # ------------------------------------------------------------------ #
+
+    def _generate_intro(self) -> DebateTurn:
+        self._current_step = "moderator_intro"
+        system, user = self._moderator.build_intro_prompts(self.config)
+        content = self._stream_llm(
+            system, user,
+            turn_number=self._alloc_turn_number(),
+            speaker=self.config.moderator.name,
+            turn_type=TurnType.MODERATOR_INTRO,
+            temperature=0.5,
+        )
+        self._validate_response(content, "moderator_intro")
+        return DebateTurn(
+            speaker=self.config.moderator.name,
+            content=content,
+            turn_number=self._next_turn_number - 1,
+            turn_type=TurnType.MODERATOR_INTRO,
+        )
+
+    def _moderator_decide(self, history: List[DebateTurn], next_speaker: str):
+        self._current_step = "moderator_decision"
+        return self._moderator.decide(self.config, history, next_speaker)
+
+    def _generate_intervention(self, history: List[DebateTurn], decision) -> DebateTurn:
+        self._current_step = f"moderator_intervention_{decision.action.value}"
+        system, user = self._moderator.build_intervention_prompts(
+            self.config, history, decision
+        )
+        turn_num = self._alloc_turn_number()
+        content = self._stream_llm(
+            system, user,
+            turn_number=turn_num,
+            speaker=self.config.moderator.name,
+            turn_type=TurnType.MODERATOR_INTERVENTION,
+            temperature=0.5,
+        )
+        self._validate_response(content, self._current_step)
+        return DebateTurn(
+            speaker=self.config.moderator.name,
+            content=content,
+            turn_number=turn_num,
+            turn_type=TurnType.MODERATOR_INTERVENTION,
+        )
+
+    def _generate_debater_turn(
+        self,
+        history: List[DebateTurn],
+        turn_idx: int,
+        debater: Debater,
+    ) -> DebateTurn:
+        self._current_step = f"debater_turn_{turn_idx + 1}"
+        base_system = f"""شما در یک مناظره هوش مصنوعی شرکت دارید.
 موضوع مناظره: {self.config.topic}
 
 قوانین:
@@ -48,129 +172,107 @@ class DebateEngineThread(QThread):
 - به طرف مقابل اشاره مستقیم نکنید، صحبت خودتان را بکنید
 - پاسخ حداکثر ۳-۴ پاراگراف باشد"""
 
-            for turn in range(total_turns):
-                if not self._is_running:
-                    break
+        system_prompt = f"""{base_system}
 
-                is_debater1_turn = turn % 2 == 0
-                current_debater = self.config.debater1 if is_debater1_turn else self.config.debater2
+شخصیت شما: {debater.name}
+{debater.prompt}"""
 
-                # ساخت پرامپت کاربر با توجه به تاریخچه
-                user_prompt = self._build_prompt(current_debater, debate_history, turn)
-
-                # ساخت سیستم پرامپت کامل
-                system_prompt = f"""{base_system}
-
-شخصیت شما: {current_debater.name}
-{current_debater.prompt}"""
-
-                # فراخوانی LLM
-                response_text = ""
-
-                def _on_chunk(chunk: str):
-                    nonlocal response_text
-                    response_text += chunk
-                    # emit incremental chunk with turn number
-                    self.turn_chunk.emit(turn + 1, chunk)
-
-                # stream the response using llm_client with retry logic
-                self.llm_client.chat_stream(system_prompt, user_prompt, _on_chunk)
-
-                # when finished, create final turn and emit
-                debate_turn = DebateTurn(
-                    speaker=current_debater.name,
-                    content=response_text,
-                    turn_number=turn + 1
-                )
-
-                debate_history.append(debate_turn)
-                self.turn_generated.emit(debate_turn)
-                self.progress_updated.emit(turn + 1, total_turns)
-
-            # تولید نتیجه‌گیری مجری (streaming)
-            if self._is_running:
-                # stream conclusion and emit conclusion chunks
-                conclusion_text = ""
-
-                def _on_conclusion_chunk(chunk: str):
-                    nonlocal conclusion_text
-                    conclusion_text += chunk
-                    self.debate_conclusion_chunk.emit(chunk)
-
-                moderator_system, moderator_user = self._build_moderator_prompts(debate_history)
-                self.llm_client.chat_stream(moderator_system, moderator_user, _on_conclusion_chunk, temperature=0.5)
-
-                # once done, emit final conclusion
-                self.debate_finished.emit(conclusion_text)
-
-        except Exception as e:
-            self.error_occurred.emit(str(e))
-
-    def _build_prompt(self, debater: Debater, history: List[DebateTurn], current_turn: int) -> str:
-        """ساخت پرامپت کاربر با توجه به تاریخچه مناظره"""
-        prompt_parts = [f"موضوع: {self.config.topic}\n"]
-        prompt_parts.append(f"شما {debater.name} هستید.\n")
-
-        if history:
-            prompt_parts.append("مکالمات قبلی:\n")
-            # فقط ۵ نوبت آخر رو بذار تا context کم نشه
-            recent_history = history[-5:]
-            for turn in recent_history:
-                prompt_parts.append(f"{turn.speaker}: {turn.content}\n")
-
-        prompt_parts.append(f"\nحالا نوبت شماست. لطفاً صحبت خودتان را انجام دهید:")
-        return "\n".join(prompt_parts)
+        user_prompt = self._build_debater_prompt(debater, history)
+        turn_num = self._alloc_turn_number()
+        content = self._stream_llm(
+            system_prompt, user_prompt,
+            turn_number=turn_num,
+            speaker=debater.name,
+            turn_type=TurnType.DEBATER,
+            temperature=self.config.temperature,
+        )
+        self._validate_response(content, self._current_step)
+        return DebateTurn(
+            speaker=debater.name,
+            content=content,
+            turn_number=turn_num,
+            turn_type=TurnType.DEBATER,
+        )
 
     def _generate_conclusion(self, history: List[DebateTurn]) -> str:
-        """Deprecated: streaming version is used in `run`. Keep for compatibility."""
-        debate_summary = "\n\n".join([
-            f"{turn.speaker}:\n{turn.content}"
-            for turn in history
-        ])
+        self._current_step = "moderator_conclusion"
+        system, user = self._moderator.build_conclusion_prompts(self.config, history)
+        conclusion_text = ""
 
-        moderator_system = f"""شما مجری و داور یک مناظره هوشمند هستید.
-    {self.config.moderator.prompt}
+        def _on_chunk(chunk: str):
+            nonlocal conclusion_text
+            conclusion_text += chunk
+            self.debate_conclusion_chunk.emit(chunk)
 
-    وظیفه شما:
-    1. تحلیل نقاط قوت و ضعف استدلال‌های طرفین
-    2. ارائه نتیجه‌گیری بی‌طرفانه
-    3. خلاصه‌ای از مباحث مطرح شده
+        self.llm_client.chat_stream(
+            system, user, _on_chunk, temperature=0.5, raise_on_error=True
+        )
+        self._validate_response(conclusion_text, "moderator_conclusion")
+        return conclusion_text
 
-    فقط متن نتیجه‌گیری را بنویسید، بدون مقدمه."""
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
 
-        moderator_user = f"""موضوع مناظره: {self.config.topic}
+    def _stream_llm(
+        self,
+        system: str,
+        user: str,
+        turn_number: int,
+        speaker: str,
+        turn_type: TurnType,
+        temperature: float,
+    ) -> str:
+        self.turn_stream_start.emit(turn_number, speaker, turn_type.value)
+        response_text = ""
 
-    متن کامل مناظره:
-    {debate_summary}
+        def _on_chunk(chunk: str):
+            nonlocal response_text
+            response_text += chunk
+            self.turn_chunk.emit(turn_number, chunk)
 
-    لطفاً نتیجه‌گیری و تحلیل خود را ارائه دهید:"""
+        self.llm_client.chat_stream(
+            system, user, _on_chunk, temperature, raise_on_error=True
+        )
+        return response_text
 
-        return self.llm_client.chat(moderator_system, moderator_user, temperature=0.5)
+    def _validate_response(self, content: str, step: str):
+        if not content or not content.strip():
+            raise ValueError(f"Invalid empty response at step: {step}")
+        if content.strip().startswith("[خطا"):
+            raise RuntimeError(f"LLM error at step {step}: {content.strip()}")
 
-    def _build_moderator_prompts(self, history: List[DebateTurn]):
-        debate_summary = "\n\n".join([
-            f"{turn.speaker}:\n{turn.content}"
-            for turn in history
-        ])
+    def _build_debater_prompt(self, debater: Debater, history: List[DebateTurn]) -> str:
+        parts = [f"موضوع: {self.config.topic}\n", f"شما {debater.name} هستید.\n"]
+        if history:
+            parts.append("مکالمات قبلی:\n")
+            for turn in history[-5:]:
+                parts.append(f"{turn.speaker}: {turn.content}\n")
+        parts.append("\nحالا نوبت شماست. لطفاً صحبت خودتان را انجام دهید:")
+        return "\n".join(parts)
 
-        moderator_system = f"""شما مجری و داور یک مناظره هوشمند هستید.
-{self.config.moderator.prompt}
+    def _has_intro(self, history: List[DebateTurn]) -> bool:
+        return any(t.turn_type == TurnType.MODERATOR_INTRO for t in history)
 
-وظیفه شما:
-1. تحلیل نقاط قوت و ضعف استدلال‌های طرفین
-2. ارائه نتیجه‌گیری بی‌طرفانه
-3. خلاصه‌ای از مباحث مطرح شده
+    def _is_legacy_project(self, history: List[DebateTurn]) -> bool:
+        """Projects saved before moderator intro have debater turns but no intro."""
+        return self.resume and self._count_debater_turns(history) > 0 and not self._has_intro(history)
 
-فقط متن نتیجه‌گیری را بنویسید، بدون مقدمه."""
+    def _count_debater_turns(self, history: List[DebateTurn]) -> int:
+        return sum(1 for t in history if t.turn_type == TurnType.DEBATER)
 
-        moderator_user = f"""موضوع مناظره: {self.config.topic}
+    def _calc_next_turn_number(self) -> int:
+        if not self.existing_turns:
+            return 1
+        return max(t.turn_number for t in self.existing_turns) + 1
 
-متن کامل مناظره:
-{debate_summary}
+    def _alloc_turn_number(self) -> int:
+        num = self._next_turn_number
+        self._next_turn_number += 1
+        return num
 
-لطفاً نتیجه‌گیری و تحلیل خود را ارائه دهید:"""
-
-        return moderator_system, moderator_user
+    def _emit_status(self, status: DebateStatus):
+        self.status_changed.emit(status.value)
 
     def stop(self):
         self._is_running = False
@@ -178,53 +280,54 @@ class DebateEngineThread(QThread):
 
 
 class DebateEngine:
-    """
-    فکتوری و کنترلر موتور مناظره
-    """
+    """فکتوری و کنترلر موتور مناظره."""
 
     def __init__(self, llm_client: LLMClient):
         self.llm_client = llm_client
         self._current_thread: Optional[DebateEngineThread] = None
 
-    def start_debate(self, config: DebateConfig,
-                     on_turn: Callable,
-                     on_finish: Callable,
-                     on_error: Callable,
-                     on_progress: Callable,
-                     on_chunk: Callable = None,
-                     on_conclusion_chunk: Callable = None) -> DebateEngineThread:
-        """
-        شروع مناظره جدید
-
-        Args:
-            config: تنظیمات مناظره
-            on_turn: callback برای هر نوبت
-            on_finish: callback برای پایان
-            on_error: callback برای خطا
-            on_progress: callback برای پیشرفت
-
-        Returns:
-            آبجکت ترد مناظره
-        """
-        # لغو مناظره قبلی اگه وجود داره
+    def start_debate(
+        self,
+        config: DebateConfig,
+        on_turn: Callable,
+        on_finish: Callable,
+        on_error: Callable,
+        on_progress: Callable,
+        on_chunk: Callable = None,
+        on_conclusion_chunk: Callable = None,
+        on_stream_start: Callable = None,
+        on_status_changed: Callable = None,
+        existing_turns: Optional[List[DebateTurn]] = None,
+        existing_conclusion: str = "",
+        resume: bool = False,
+    ) -> DebateEngineThread:
         self.stop_debate()
 
-        thread = DebateEngineThread(self.llm_client, config)
+        thread = DebateEngineThread(
+            self.llm_client,
+            config,
+            existing_turns=existing_turns,
+            existing_conclusion=existing_conclusion,
+            resume=resume,
+        )
         thread.turn_generated.connect(on_turn)
         if on_chunk:
             thread.turn_chunk.connect(on_chunk)
+        if on_stream_start:
+            thread.turn_stream_start.connect(on_stream_start)
         thread.debate_finished.connect(on_finish)
         if on_conclusion_chunk:
             thread.debate_conclusion_chunk.connect(on_conclusion_chunk)
         thread.error_occurred.connect(on_error)
         thread.progress_updated.connect(on_progress)
+        if on_status_changed:
+            thread.status_changed.connect(on_status_changed)
 
         self._current_thread = thread
         thread.start()
         return thread
 
     def stop_debate(self):
-        """توقف مناظره فعلی"""
         if self._current_thread and self._current_thread.isRunning():
             self._current_thread.stop()
             self._current_thread = None

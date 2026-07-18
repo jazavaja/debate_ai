@@ -2,10 +2,11 @@
 import os
 from datetime import datetime
 from typing import List
-from core.debate_engine import DebateTurn
 import json
-from typing import Any
+
 from models.debate_project import DebateProject
+from models.debate_status import TurnType
+from models.debate_turn import DebateTurn
 
 class FileHandler:
     """
@@ -92,7 +93,13 @@ class FileHandler:
 
         # اضافه کردن مکالمات
         for turn in turns:
-            lines.append(f"### نوبت {turn.turn_number}: {turn.speaker}")
+            if turn.turn_type == TurnType.MODERATOR_INTRO:
+                section = f"### 🎙️ معرفی مجری: {turn.speaker}"
+            elif turn.turn_type == TurnType.MODERATOR_INTERVENTION:
+                section = f"### 🎙️ مداخله مجری: {turn.speaker}"
+            else:
+                section = f"### نوبت {turn.turn_number}: {turn.speaker}"
+            lines.append(section)
             lines.append("")
             lines.append(turn.content)
             lines.append("")
