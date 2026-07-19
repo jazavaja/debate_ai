@@ -209,6 +209,84 @@ class MainWindow(QMainWindow):
             return True
         return False
 
+    def _build_debate_markdown(self) -> str:
+        """ساخت محتوای Markdown برای ذخیره فایل"""
+        from datetime import datetime
+        from models.debate_status import TurnType
+        
+        topic = self._current_debate_data["topic"]
+        debater1_name = self._current_debate_data["debater1_name"]
+        debater1_prompt = self._current_debate_data["debater1_prompt"]
+        debater2_name = self._current_debate_data["debater2_name"]
+        debater2_prompt = self._current_debate_data["debater2_prompt"]
+        moderator_name = self._current_debate_data["moderator_name"]
+        moderator_prompt = self._current_debate_data["moderator_prompt"]
+        turns = self._current_debate_data["turns"]
+        conclusion = self._current_debate_data["conclusion"]
+        
+        lines = [
+            f"# مناظره: {topic}",
+            "",
+            f"**تاریخ:** {datetime.now().strftime('%Y/%m/%d %H:%M')}",
+            f"**تعداد نوبت‌ها:** {len(turns)}",
+            "",
+            "---",
+            "",
+            "## معرفی مجری",
+            "",
+            f"**{moderator_name}**",
+            "",
+            f"{moderator_prompt}",
+            "",
+            "---",
+            "",
+            "## معرفی طرفین مناظره",
+            "",
+            f"### {debater1_name}",
+            "",
+            f"{debater1_prompt}",
+            "",
+            f"### {debater2_name}",
+            "",
+            f"{debater2_prompt}",
+            "",
+            "---",
+            "",
+            "## متن کامل مناظره",
+            "",
+        ]
+        
+        # اضافه کردن مکالمات
+        for turn in turns:
+            if turn.turn_type == TurnType.MODERATOR_INTRO:
+                section = f"### 🎙️ معرفی مجری: {turn.speaker}"
+            elif turn.turn_type == TurnType.MODERATOR_INTERVENTION:
+                section = f"### 🎙️ مداخله مجری: {turn.speaker}"
+            else:
+                section = f"### نوبت {turn.turn_number}: {turn.speaker}"
+            lines.append(section)
+            lines.append("")
+            lines.append(turn.content)
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+        
+        # نتیجه‌گیری
+        lines.extend([
+            "",
+            "## نتیجه‌گیری و تحلیل مجری",
+            "",
+            f"**{moderator_name}:**",
+            "",
+            conclusion,
+            "",
+            "---",
+            "",
+            "*تولید شده توسط DebateAI*",
+        ])
+        
+        return "\n".join(lines)
+
     def _start_engine(self, resume: bool = False):
         config = self._build_config()
         valid, msg = config.validate()
@@ -378,17 +456,22 @@ class MainWindow(QMainWindow):
 
     def _on_save_file(self):
         try:
-            filepath = FileHandler.export_debate(
-                topic=self._current_debate_data["topic"],
-                debater1_name=self._current_debate_data["debater1_name"],
-                debater1_prompt=self._current_debate_data["debater1_prompt"],
-                debater2_name=self._current_debate_data["debater2_name"],
-                debater2_prompt=self._current_debate_data["debater2_prompt"],
-                moderator_name=self._current_debate_data["moderator_name"],
-                moderator_prompt=self._current_debate_data["moderator_prompt"],
-                turns=self._current_debate_data["turns"],
-                conclusion=self._current_debate_data["conclusion"],
+            # نمایش dialog برای انتخاب مسیر ذخیره
+            default_filename = f"debate_{self._current_debate_data['topic'].replace(' ', '_')}.md"
+            filepath, _ = QFileDialog.getSaveFileName(
+                self, "ذخیره مناظره", default_filename,
+                "Markdown Files (*.md);;Text Files (*.txt);;All Files (*)",
             )
+            
+            if not filepath:
+                return
+            
+            # ذخیره فایل در مسیر انتخاب شده
+            content = self._build_debate_markdown()
+            os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
             CustomMessageBox.information(self, "✅ ذخیره شد", f"فایل با موفقیت ذخیره شد:\n{filepath}")
         except Exception as e:
             CustomMessageBox.critical(self, "❌ خطا", f"خطا در ذخیره فایل:\n{str(e)}")
