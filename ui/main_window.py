@@ -3,7 +3,7 @@ import os
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QSpinBox, QPushButton,
-    QMessageBox, QFileDialog, QScrollArea, QFrame,
+    QFileDialog, QScrollArea, QFrame,
 )
 from PyQt5.QtCore import Qt
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, MAX_TURNS_DEFAULT
@@ -16,6 +16,7 @@ from models.debate_status import DebateStatus, GenerationError
 from models.debate_turn import DebateTurn
 from models.debater import Debater
 from ui.styles import DARK_THEME
+from ui.custom_messagebox import CustomMessageBox
 from ui.widgets.debater_card import DebaterCard
 from ui.widgets.moderator_card import ModeratorCard
 from ui.widgets.debate_output import DebateOutput
@@ -212,7 +213,7 @@ class MainWindow(QMainWindow):
         config = self._build_config()
         valid, msg = config.validate()
         if not valid:
-            QMessageBox.warning(self, "⚠️ اعتبارسنجی", msg)
+            CustomMessageBox.warning(self, "⚠️ اعتبارسنجی", msg)
             return
 
         self._apply_api_key()
@@ -277,16 +278,16 @@ class MainWindow(QMainWindow):
                 sender.set_optimized_text(final_text)
             else:
                 sender.reset_optimize_button()
-                QMessageBox.warning(self, "⚠️ خطا", "پاسخی از مدل دریافت نشد.")
+                CustomMessageBox.warning(self, "⚠️ خطا", "پاسخی از مدل دریافت نشد.")
                 return
-            QMessageBox.information(self, "✅ موفق", "پرامپت با موفقیت بهینه شد!")
+            CustomMessageBox.information(self, "✅ موفق", "پرامپت با موفقیت بهینه شد!")
 
         def on_error(error: str):
             if streaming_started:
                 sender.finish_optimized_stream()
             else:
                 sender.reset_optimize_button()
-            QMessageBox.critical(self, "❌ خطا", f"خطا در بهینه‌سازی:\n{error}")
+            CustomMessageBox.critical(self, "❌ خطا", f"خطا در بهینه‌سازی:\n{error}")
 
         self.prompt_optimizer.optimize(
             text,
@@ -303,7 +304,7 @@ class MainWindow(QMainWindow):
 
     def _on_resume_debate(self):
         if not self._can_resume():
-            QMessageBox.information(self, "ℹ️", "مناظره‌ای برای ادامه وجود ندارد.")
+            CustomMessageBox.information(self, "ℹ️", "مناظره‌ای برای ادامه وجود ندارد.")
             return
         self._start_engine(resume=True)
 
@@ -338,7 +339,7 @@ class MainWindow(QMainWindow):
         self.output_widget.set_conclusion(conclusion)
         self.output_widget.set_status(DebateStatus.COMPLETED)
         self._set_generation_ui(running=False)
-        QMessageBox.information(
+        CustomMessageBox.information(
             self, "✅ تمام شد",
             "مناظره با موفقیت تولید شد!\nمی‌توانید فایل را ذخیره کنید.",
         )
@@ -348,7 +349,7 @@ class MainWindow(QMainWindow):
         self._current_debate_data["generation_error"] = error
         self.output_widget.set_status(DebateStatus.FAILED, error.message)
         self._set_generation_ui(running=False)
-        QMessageBox.critical(
+        CustomMessageBox.critical(
             self, "❌ تولید متوقف شد",
             f"تولید مناظره متوقف شد.\n\n"
             f"مرحله: {error.step}\n"
@@ -388,9 +389,9 @@ class MainWindow(QMainWindow):
                 turns=self._current_debate_data["turns"],
                 conclusion=self._current_debate_data["conclusion"],
             )
-            QMessageBox.information(self, "✅ ذخیره شد", f"فایل با موفقیت ذخیره شد:\n{filepath}")
+            CustomMessageBox.information(self, "✅ ذخیره شد", f"فایل با موفقیت ذخیره شد:\n{filepath}")
         except Exception as e:
-            QMessageBox.critical(self, "❌ خطا", f"خطا در ذخیره فایل:\n{str(e)}")
+            CustomMessageBox.critical(self, "❌ خطا", f"خطا در ذخیره فایل:\n{str(e)}")
 
     def _on_save_project(self):
         try:
@@ -408,9 +409,9 @@ class MainWindow(QMainWindow):
             )
             if filepath:
                 FileHandler.save_project_json(project, filepath)
-                QMessageBox.information(self, "✅ ذخیره شد", f"پروژه ذخیره شد:\n{filepath}")
+                CustomMessageBox.information(self, "✅ ذخیره شد", f"پروژه ذخیره شد:\n{filepath}")
         except Exception as e:
-            QMessageBox.critical(self, "❌ خطا", f"خطا در ذخیره پروژه:\n{str(e)}")
+            CustomMessageBox.critical(self, "❌ خطا", f"خطا در ذخیره پروژه:\n{str(e)}")
 
     def _on_load_project(self):
         try:
@@ -469,10 +470,10 @@ class MainWindow(QMainWindow):
                 total = project.config.max_turns * 2
                 msg += f"\n\n{debater_done}/{total} نوبت تولید شده."
                 msg += "\nبرای ادامه، «⏩ ادامه مناظره» را بزنید."
-            QMessageBox.information(self, "✅ بارگذاری شد", msg)
+            CustomMessageBox.information(self, "✅ بارگذاری شد", msg)
 
         except Exception as e:
-            QMessageBox.critical(self, "❌ خطا", f"خطا در بارگذاری پروژه:\n{str(e)}")
+            CustomMessageBox.critical(self, "❌ خطا", f"خطا در بارگذاری پروژه:\n{str(e)}")
 
     def closeEvent(self, event):
         self.debate_engine.stop_debate()
