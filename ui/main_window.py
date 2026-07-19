@@ -70,8 +70,8 @@ class MainWindow(QMainWindow):
 
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
-        left_scroll.setMinimumWidth(440)
-        left_scroll.setMaximumWidth(520)
+        left_scroll.setMinimumWidth(580)
+        left_scroll.setMaximumWidth(700)
         left_scroll.setFrameShape(QFrame.NoFrame)
 
         left_widget = QWidget()
