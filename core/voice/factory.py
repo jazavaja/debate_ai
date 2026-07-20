@@ -5,10 +5,10 @@ Factory Pattern برای TTS Providers
 
 from typing import Optional, Dict, Type
 from enum import Enum
-from voice.base import TTSProvider, TTSConfig
-from voice.edge_tts_provider import EdgeTTSProvider
-from voice.elevenlabs_provider import ElevenLabsProvider
-from voice.gemini_provider import GeminiProvider
+from core.voice.base import TTSProvider, TTSConfig
+from core.voice.edge_tts_provider import EdgeTTSProvider
+from core.voice.elevenlabs_provider import ElevenLabsProvider
+from core.voice.gemini_provider import GeminiProvider
 
 
 class TTSProviderType(Enum):

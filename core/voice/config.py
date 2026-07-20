@@ -4,7 +4,7 @@
 """
 
 from dataclasses import dataclass
-from voice.factory import TTSProviderType
+from core.voice.factory import TTSProviderType
 
 
 @dataclass

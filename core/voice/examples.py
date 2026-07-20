@@ -3,7 +3,7 @@
 مثال‌های استفاده از Voice Module
 """
 
-from voice import (
+from core.voice import (
     VoiceManager,
     VoiceConfig,
     TTSProviderType,

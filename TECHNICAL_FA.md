@@ -998,7 +998,7 @@ flowchart TD
 ### استفاده
 
 ```python
-from voice import VoiceManager, VoiceConfig, TTSProviderType
+from core.voice import VoiceManager, VoiceConfig, TTSProviderType
 
 # مثال 1: Edge TTS (رایگان)
 config = VoiceConfig(provider_type=TTSProviderType.EDGE_TTS)
@@ -1011,7 +1011,8 @@ manager.switch_provider(TTSProviderType.ELEVENLABS, api_key="...")
 audio = manager.synthesize_text("متن جدید")
 
 # مثال 3: تقسیم متن طولانی
-from voice import VoiceUtils
+from core.voice import VoiceUtils
+
 chunks = VoiceUtils.split_long_text(long_text, max_length=5000)
 ```
 

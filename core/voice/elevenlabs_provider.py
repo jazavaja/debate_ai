@@ -5,7 +5,7 @@ ElevenLabs API Provider - استفاده از ElevenLabs API
 
 import requests
 from typing import Optional
-from voice.base import TTSProvider, TTSConfig
+from core.voice.base import TTSProvider, TTSConfig
 
 
 class ElevenLabsProvider(TTSProvider):

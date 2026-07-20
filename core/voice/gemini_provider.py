@@ -5,7 +5,7 @@ Google Gemini API Provider - استفاده از Google Gemini TTS
 
 import requests
 from typing import Optional
-from voice.base import TTSProvider, TTSConfig
+from core.voice.base import TTSProvider, TTSConfig
 
 
 class GeminiProvider(TTSProvider):

@@ -6,7 +6,7 @@ Edge TTS Provider - استفاده از Microsoft Edge TTS
 import asyncio
 import io
 from typing import Optional
-from voice.base import TTSProvider, TTSConfig
+from core.voice.base import TTSProvider, TTSConfig
 
 
 class EdgeTTSProvider(TTSProvider):

@@ -5,9 +5,9 @@ Voice Manager - مدیریت TTS و تولید صوت
 
 import os
 from typing import Optional, Dict
-from voice.base import TTSProvider, TTSConfig
-from voice.factory import TTSFactory, TTSProviderType
-from voice.config import VoiceConfig
+from core.voice.base import TTSProvider, TTSConfig
+from core.voice.factory import TTSFactory, TTSProviderType
+from core.voice.config import VoiceConfig
 
 
 class VoiceManager:

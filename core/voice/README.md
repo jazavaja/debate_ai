@@ -82,7 +82,7 @@ Utility functions:
 ### مثال ساده (Edge TTS - رایگان)
 
 ```python
-from voice import VoiceManager, VoiceConfig, TTSProviderType
+from core.voice import VoiceManager, VoiceConfig, TTSProviderType
 
 # ایجاد config
 config = VoiceConfig(
@@ -107,7 +107,7 @@ manager.save_audio(audio_data, "output.mp3")
 ### استفاده از ElevenLabs
 
 ```python
-from voice import VoiceManager, VoiceConfig, TTSProviderType
+from core.voice import VoiceManager, VoiceConfig, TTSProviderType
 
 config = VoiceConfig(
     provider_type=TTSProviderType.ELEVENLABS,
@@ -146,7 +146,7 @@ manager.update_voice_config(
 ### تقسیم متن طولانی
 
 ```python
-from voice import VoiceUtils
+from core.voice import VoiceUtils
 
 long_text = "متن بسیار طولانی..."
 chunks = VoiceUtils.split_long_text(long_text, max_length=5000)
@@ -185,18 +185,20 @@ except RuntimeError as e:
 ## اضافه کردن Provider جدید
 
 ```python
-from voice import TTSProvider, TTSConfig, TTSFactory, TTSProviderType
+from core.voice import TTSProvider, TTSConfig, TTSFactory, TTSProviderType
+
 
 class CustomTTSProvider(TTSProvider):
     def synthesize(self, text: str, speaker: str = "default") -> bytes:
         # پیاده‌سازی شما
         pass
-    
+
     def get_available_voices(self) -> dict:
         return {}
-    
+
     def validate_credentials(self) -> bool:
         return True
+
 
 # ثبت provider
 TTSFactory.register_provider(
