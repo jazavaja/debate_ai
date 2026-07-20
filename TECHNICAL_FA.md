@@ -15,17 +15,18 @@
 7. [مدل‌های داده](#۷-مدل‌های-داده)
 8. [اتصال به LLM](#۸-اتصال-به-llm)
 9. [رابط کاربری (UI)](#۹-رابط-کاربری-ui)
-10. [ذخیره‌سازی و بارگذاری](#۱۰-ذخیره‌سازی-و-بارگذاری)
-11. [وضعیت‌ها و ادامه مناظره](#۱۱-وضعیت‌ها-و-ادامه-مناظره)
-12. [مدیریت خطا](#۱۲-مدیریت-خطا)
-13. [وابستگی‌ها و اجرا](#۱۳-وابستگی‌ها-و-اجرا)
-14. [نمودار جریان](#۱۴-نمودار-جریان)
+10. [سیستم صوتی (Voice/TTS)](#۱۰-سیستم-صوتی-voicetts)
+11. [ذخیره‌سازی و بارگذاری](#۱۱-ذخیره‌سازی-و-بارگذاری)
+12. [وضعیت‌ها و ادامه مناظره](#۱۲-وضعیت‌ها-و-ادامه-مناظره)
+13. [مدیریت خطا](#۱۳-مدیریت-خطا)
+14. [وابستگی‌ها و اجرا](#۱۴-وابستگی‌ها-و-اجرا)
+15. [نمودار جریان](#۱۵-نمودار-جریان)
 
 ---
 
 ## ۱. معرفی کلی
 
-**DebateAI** یک اپلیکیشن دسکتاپ مبتنی بر **PyQt5** است که مناظره‌های فارسی بین دو هوش مصنوعی (با شخصیت‌های قابل تنظیم) را با حضور **مجری هوشمند** تولید می‌کند.
+**DebateAI** یک اپلیکیشن دسکتاپ مبتنی بر **PyQt5** است که مناظره‌های فارسی بین دو هوش مصنوعی (با شخصیت‌های قابل تنظیم) را با حضور **مجری هوشمند** تولید می‌کند. همچنین ویژگی **تولید صوت خودکار** (TTS) از چند provider مختلف را پشتیبانی می‌کند.
 
 | ویژگی | توضیح |
 |--------|--------|
@@ -34,6 +35,8 @@
 | پایگاه داده | ندارد — داده‌ها در حافظه و فایل JSON/Markdown |
 | صف کار (Queue) | ندارد — از `QThread` برای کارهای سنگین استفاده می‌شود |
 | ارائه‌دهندگان LLM | OpenAI، Anthropic، Gemini، APIهای سازگار با OpenAI |
+| تولید صوت (TTS) | Edge TTS (رایگان)، ElevenLabs API، Google Gemini TTS |
+| Design Patterns | MVC، Strategy، Factory، Observer، Thread Worker، Abstract Base Class |
 
 ---
 
@@ -46,6 +49,7 @@
 │  ui/          →  رابط کاربری (View)     │
 │  main_window  →  کنترلر (Controller)    │
 ├─────────────────────────────────────────┤
+│  voice/       →  تولید صوت (TTS)       │
 │  core/        →  منطق کسب‌وکار          │
 │  models/      →  مدل‌های داده (Dataclass)│
 │  utils/       →  ابزارهای کمکی         │
@@ -59,7 +63,8 @@
 |------|-------------|
 | **MVC** | `MainWindow` کنترلر؛ ویجت‌ها View؛ `_current_debate_data` حالت |
 | **Strategy** | `LLMProvider` و پیاده‌سازی‌های مختلف در `core/providers/` |
-| **Factory** | `create_provider()` برای ساخت provider مناسب |
+| **Factory** | `create_provider()` برای ساخت provider LLM؛ `TTSFactory` برای TTS |
+| **Abstract Base Class** | `TTSProvider` برای تمام TTS providers |
 | **Observer (سیگنال PyQt)** | `DebateEngineThread` → UI از طریق `pyqtSignal` |
 | **Thread Worker** | `DebateEngineThread`، `PromptOptimizerThread` |
 
@@ -128,7 +133,7 @@ debate_ai/
 ├── .env.example                 # نمونه تنظیمات LLM
 ├── .gitignore                   # فایل‌های نادیده Git
 ├── readme.md                    # خلاصه معماری (انگلیسی — ممکن است قدیمی باشد)
-├── TECHNICAL_FA.md              # همین سند
+├── TECHNICAL_FA.md              # همین سند (مستندات کامل فارسی)
 │
 ├── core/                        # منطق اصلی
 │   ├── __init__.py
@@ -136,7 +141,7 @@ debate_ai/
 │   ├── llm_client.py            # واسط LLM + retry
 │   ├── prompt_optimizer.py      # بهینه‌سازی پرامپت
 │   ├── moderator_agent.py       # منطق تصمیم‌گیری مجری
-│   ├── moderator_prompts.py       # قالب پرامپت‌های مجری
+│   ├── moderator_prompts.py     # قالب پرامپت‌های مجری
 │   └── providers/               # پیاده‌سازی providerها
 │       ├── __init__.py
 │       ├── base.py
@@ -155,15 +160,31 @@ debate_ai/
 │   └── debate_project.py
 │
 ├── ui/                          # رابط کاربری
-│   ├── main_window.py
-│   ├── styles.py
+│   ├── __init__.py
+│   ├── main_window.py           # کنترلر اصلی + layout
+│   ├── custom_messagebox.py     # MessageBox سفارشی (تیره/روشن)
+│   ├── styles.py                # تم تیره (Dark Theme)
 │   └── widgets/
 │       ├── __init__.py
-│       ├── debater_card.py
-│       ├── moderator_card.py
-│       └── debate_output.py
+│       ├── debater_card.py      # کارت ورودی debater
+│       ├── moderator_card.py    # کارت ورودی مجری
+│       └── debate_output.py     # نمایش خروجی
+│
+├── voice/                       # تولید صوت (TTS)
+│   ├── __init__.py
+│   ├── base.py                  # Abstract Base Class (TTSProvider)
+│   ├── edge_tts_provider.py     # Microsoft Edge TTS (رایگان)
+│   ├── elevenlabs_provider.py   # ElevenLabs API
+│   ├── gemini_provider.py       # Google Gemini TTS
+│   ├── factory.py               # Factory Pattern
+│   ├── config.py                # تنظیمات صوتی
+│   ├── manager.py               # مدیر مرکزی صوتی
+│   ├── utils.py                 # توابع کمکی صوتی
+│   ├── examples.py              # مثال‌های استفاده
+│   └── README.md                # مستندات ماژول صوت
 │
 ├── utils/
+│   ├── __init__.py
 │   └── file_handler.py          # JSON + Markdown
 │
 ├── test.py                      # تست ذخیره/بارگذاری پروژه
@@ -465,18 +486,38 @@ debate_ai/
 **نقش:** کنترلر اصلی (MVC) — اتصال UI به core.
 
 **وظایف:**
-- ساخت layout: پنل چپ (تنظیمات) + پنل راست (خروجی)
+- ساخت layout: پنل چپ (تنظیمات، عرض: 580-700px) + پنل راست (خروجی)
 - مدیریت `_current_debate_data` — حالت در حافظه
 - `_start_engine(resume=False/True)` — شروع یا ادامه مناظره
 - `_can_resume()` — بررسی امکان ادامه
+- `_build_debate_markdown()` — ساخت محتوای Markdown برای export
 - handlerهای ذخیره/بارگذاری پروژه و export Markdown
 - `_on_optimize_prompt()` — اتصال کارت‌ها به `PromptOptimizer`
+- `_on_save_file()` — نمایش QFileDialog برای انتخاب مسیر ذخیره
 - `closeEvent()` — توقف threadها هنگام بستن برنامه
 
 **دکمه‌ها:**
 - شروع مناظره / ادامه / توقف
 - ذخیره/بارگذاری پروژه JSON
 - API Key (اختیاری — override کلید config)
+
+**ویژگی جدید:** Dialog برای export Markdown (برخلاف قبل که اتوماتیک بود)
+
+---
+
+#### `ui/custom_messagebox.py`
+**نقش:** QMessageBox سفارشی با تم تیره.
+
+**ویژگی‌ها:**
+- زمینه سیاه (#0f1024) + متن سفید (#f2f5fb)
+- متدهای static: `information()`, `warning()`, `critical()`, `question()`
+- استایل QSS برای دکمه‌ها (hover effect)
+
+**استفاده:**
+```python
+from ui.custom_messagebox import CustomMessageBox
+CustomMessageBox.information(self, "عنوان", "پیام")
+```
 
 ---
 
@@ -524,7 +565,150 @@ debate_ai/
 
 ---
 
-### پوشه `utils/`
+### پوشه `voice/` — تولید صوت (TTS)
+
+**نقش:** سیستم تولید صوت مبتنی بر Design Patterns — پشتیبانی از چند provider مختلف.
+
+#### `voice/base.py`
+**نقش:** Abstract Base Class برای تمام TTS providers.
+
+**کلاس‌ها:**
+- `TTSConfig`: dataclass برای تنظیمات صوتی (language, speed, pitch, volume)
+- `TTSProvider`: abstract base class برای تمام providers
+
+**متدهای abstract:**
+- `synthesize(text, speaker)` — تبدیل متن به bytes صوتی
+- `get_available_voices()` — دریافت لیست voice های موجود
+- `validate_credentials()` — بررسی صحت اعتبارات
+
+---
+
+#### `voice/edge_tts_provider.py`
+**نقش:** اتصال به Microsoft Edge TTS.
+
+**ویژگی‌ها:**
+- رایگان — نیازمند API Key نیست
+- voice های فارسی: `fa-IR-DilaraNeural` (دیلارا)، `fa-IR-FaridNeural` (فرید)
+- استفاده از async/await با `asyncio`
+- خروجی: MP3
+
+**نصب:** `pip install edge-tts`
+
+---
+
+#### `voice/elevenlabs_provider.py`
+**نقش:** اتصال به ElevenLabs API برای صوت کیفیت بالا.
+
+**ویژگی‌ها:**
+- نیازمند: ElevenLabs API Key
+- 29+ languages
+- voices: Rachel, Domi, Ava, Josh, Arnold, Sam و ...
+- خروجی: MP3
+- مدیریت Rate Limiting و خطاهای HTTP
+
+**نصب:** `pip install requests`
+
+---
+
+#### `voice/gemini_provider.py`
+**نقش:** اتصال به Google Gemini API برای تولید صوت Neural.
+
+**ویژگی‌ها:**
+- نیازمند: Google API Key
+- voice های فارسی: `fa-IR-Standard-*`, `fa-IR-Neural2-*`
+- خروجی: MP3 (base64 encoded)
+- پشتیبانی pitch و speaking rate
+
+**نصب:** `pip install requests`
+
+---
+
+#### `voice/factory.py`
+**نقش:** Factory Pattern برای ایجاد TTS Provider instances.
+
+**کلاس‌ها:**
+- `TTSProviderType`: enum انواع providers (`EDGE_TTS`, `ELEVENLABS`, `GEMINI`)
+- `TTSFactory`: factory برای ایجاد instances و ثبت providers سفارشی
+
+**متد اصلی:** `TTSFactory.create(provider_type, api_key, config)`
+
+**ویژگی:** پشتیبانی ثبت providers جدید با `register_provider()`
+
+---
+
+#### `voice/config.py`
+**نقش:** تنظیمات سیستم صوتی.
+
+**کلاس `VoiceConfig`:**
+- `provider_type` — provider فعلی
+- `elevenlabs_api_key`, `gemini_api_key` — API Keys
+- `speech_rate`, `pitch`, `volume` — تنظیمات صوتی
+- `debater1_voice`, `debater2_voice`, `moderator_voice` — انتخاب voice برای هر شخصیت
+- `output_format`, `sample_rate` — تنظیمات فایل خروجی
+
+**متدها:** `to_dict()`, `from_dict()` — سریال‌سازی برای JSON
+
+---
+
+#### `voice/manager.py`
+**نقش:** مدیر مرکزی برای تمام عملیات صوتی.
+
+**کلاس `VoiceManager`:**
+- مدیریت lifecycle provider
+- مقدار دهی اولیه اتوماتیک
+- تبدیل پویا بین providers
+
+**متدهای کلیدی:**
+- `synthesize_text(text, speaker_type)` — تبدیل متن به صوت
+- `save_audio(audio_data, filepath)` — ذخیره فایل صوتی
+- `get_available_voices()` — دریافت voice های فعلی
+- `validate_credentials()` — بررسی اعتبارات
+- `switch_provider(provider_type, api_key)` — تبدیل به provider دیگر
+- `update_voice_config()` — به‌روزرسانی تنظیمات
+
+---
+
+#### `voice/utils.py`
+**نقش:** توابع کمکی برای کار با صوت.
+
+**کلاس `VoiceUtils`:**
+- `get_output_directory()` — ایجاد دایرکتوری خروجی
+- `generate_audio_filename()` — تولید نام فایل صوتی
+- `split_long_text()` — تقسیم متن طولانی (برای APIهای محدود)
+- `get_file_size_mb()` — دریافت اندازه فایل
+- `cleanup_old_files()` — حذف فایل‌های قدیمی‌تر از مدت زمان معین
+- `validate_audio_file()` — بررسی صحت فایل صوتی
+
+---
+
+#### `voice/examples.py`
+**نقش:** مثال‌های استفاده برای Voice Module.
+
+**مثال‌های شامل:**
+1. `example_edge_tts()` — استفاده ساده (رایگان)
+2. `example_elevenlabs()` — استفاده با API
+3. `example_gemini()` — استفاده Gemini
+4. `example_provider_switching()` — تبدیل بین providers
+5. `example_long_text_splitting()` — تقسیم متن طولانی
+6. `example_full_debate_generation()` — تولید صوت برای کل مناظره
+
+---
+
+#### `voice/README.md`
+**نقش:** مستندات کامل ماژول Voice.
+
+**شامل:**
+- معماری و Design Patterns
+- توضیح هر provider
+- آموزش استفاده
+- لیست available voices
+- نکات security
+- Performance tips
+
+---
+
+#### `voice/__init__.py`
+**صادرات:** `TTSProvider`, `TTSConfig`, `TTSFactory`, `TTSProviderType`, `VoiceConfig`, `VoiceManager`, `VoiceUtils`
 
 #### `utils/file_handler.py`
 **نقش:** عملیات فایل — JSON پروژه و export Markdown.
@@ -612,22 +796,29 @@ DebateProject
 
 ---
 
-## ۱۰. ذخیره‌سازی و بارگذاری
+## ۱۱. ذخیره‌سازی و بارگذاری
 
 ### پروژه JSON (اصلی)
 - **ذخیره:** تنظیمات + نوبت‌ها + conclusion + status + خطا
 - **بارگذاری:** پر کردن فرم‌ها + نمایش خروجی + فعال‌سازی «ادامه» در صورت امکان
+- **مسیر:** `projects/` (انتخاب شده توسط کاربر از QFileDialog)
 
 ### Export Markdown
 - جدا از JSON — برای TTS و اشتراک
-- مسیر: `debates/debate_{topic}_{timestamp}.md`
+- **مسیر:** نمایش QFileDialog برای انتخاب مسیر و نام فایل
+- **فرمت:** Markdown با معرفی شخصیت‌ها، متن کامل، نتیجه‌گیری
+
+### Export صوتی (پیش‌نویس)
+- **مسیر:** `voice_output/` (خودکار)
+- **ترتیب:** debater1 → debater2 → moderator (برای هر نوبت)
+- **فرمت:** MP3 (قابل تنظیم)
 
 ### فیلد `exported_output_path`
 - در schema وجود دارد ولی UI فعلاً آن را set نمی‌کند.
 
 ---
 
-## ۱۱. وضعیت‌ها و ادامه مناظره
+## ۱۲. وضعیت‌ها و ادامه مناظره
 
 ### چرخه وضعیت
 
@@ -651,7 +842,7 @@ PENDING → RUNNING → COMPLETED
 
 ---
 
-## ۱۲. مدیریت خطا
+## ۱۳. مدیریت خطا
 
 | لایه | رفتار |
 |------|--------|
@@ -659,42 +850,63 @@ PENDING → RUNNING → COMPLETED
 | `DebateEngineThread` | `GenerationError` با step و timestamp |
 | `LLMClient.chat()` | رشته خطا در پاسخ (بدون raise) |
 | `LLMClient.chat_stream()` | retry + inject خطا در stream |
-| UI | QMessageBox برای validation، خطا، ذخیره |
+| `VoiceManager` | exception برای خطاهای TTS |
+| `UI` | `CustomMessageBox` برای validation، خطا، ذخیره |
 
 **اعتبارسنجی پاسخ:** پاسخ خالی یا شروع با `[خطا` → exception و FAILED
 
+**خطاهای TTS:**
+- `ValueError` — متن خالی یا اعتبارات نامعتبر
+- `RuntimeError` — خطای API یا timeout
+
 ---
 
-## ۱۳. وابستگی‌ها و اجرا
+## ۱۴. وابستگی‌ها و اجرا
 
 ### کتابخانه‌های مورد نیاز (بر اساس importها)
 
 ```
-PyQt5
-openai
-anthropic
-google-genai
-requests
-markdown2
+PyQt5              # رابط کاربری
+openai             # OpenAI API
+anthropic          # Claude API
+google-genai       # Gemini API
+requests           # HTTP requests (برای generic و TTS providers)
+markdown2          # رندر Markdown
+edge-tts           # Microsoft Edge TTS (اختیاری)
 ```
 
-### اجرا
+### نصب
 
 ```bash
-# نصب وابستگی‌ها (نمونه)
+# نصب وابستگی‌های اساسی
 pip install PyQt5 openai anthropic google-genai requests markdown2
+
+# نصب TTS (اختیاری)
+pip install edge-tts
 
 # کپی تنظیمات
 cp .env.example .env
-# ویرایش .env
+# ویرایش .env برای API keys شما
 
-# اجرای برنامه
+# اجرا
 python main.py
 ```
 
+### متغیرهای محیطی (.env)
+
+| متغیر | پیش‌فرض | توضیح |
+|--------|---------|--------|
+| `LLM_PROVIDER` | openai | openai / anthropic / gemini / custom |
+| `LLM_MODEL` | gpt-4o-mini | نام مدل |
+| `LLM_API_KEY` | — | کلید API |
+| `LLM_BASE_URI` | api.openai.com/v1 | آدرس پایه |
+| `LLM_AUTH_HEADER_NAME` | Authorization | نام header |
+| `LLM_AUTH_TOKEN_PREFIX` | Bearer | پیشوند token |
+| `LLM_TEMPERATURE` | 0.8 | دمای پیش‌فرض |
+
 ---
 
-## ۱۴. نمودار جریان
+## ۱۵. نمودار جریان
 
 ```mermaid
 flowchart TD
@@ -743,12 +955,86 @@ flowchart TD
 | `core/providers/*` | اتصال به APIهای مختلف |
 | `models/*` | ساختار داده |
 | `ui/main_window.py` | کنترلر UI |
+| `ui/custom_messagebox.py` | MessageBox سفارشی |
 | `ui/styles.py` | تم تیره |
 | `ui/widgets/*` | ویجت‌های فرم و خروجی |
+| `voice/base.py` | Abstract Base Class برای TTS |
+| `voice/*_provider.py` | پیاده‌سازی TTS providers |
+| `voice/factory.py` | Factory برای ایجاد TTS |
+| `voice/config.py` | تنظیمات صوتی |
+| `voice/manager.py` | مدیر مرکزی صوتی |
+| `voice/utils.py` | توابع کمکی صوتی |
 | `utils/file_handler.py` | JSON + Markdown |
 | `test.py` | تست save/load |
 | `test_optimize.py` | تست optimizer |
 
 ---
 
-*آخرین به‌روزرسانی این سند بر اساس کد موجود در پروژه DebateAI.*
+## ۱۰. سیستم صوتی (Voice/TTS)
+
+### معماری
+
+سیستم صوتی بر اساس **Design Patterns** ساخته شده تا پشتیبانی از چند TTS provider مختلف را فراهم کند:
+
+```
+┌──────────────────────────────────────┐
+│  VoiceManager (رابط مرکزی)          │
+├──────────────────────────────────────┤
+│  TTSFactory (Factory Pattern)        │
+├────┬────────────┬──────────────────┤
+│ Edge│ ElevenLabs│ Google Gemini    │
+│ TTS │ API       │ TTS              │
+└────┴────────────┴──────────────────┘
+```
+
+### Providers موجود
+
+| Provider | رایگان | نیاز API Key | فارسی | نکات |
+|----------|--------|--------------|-------|------|
+| Edge TTS | ✓ | ✗ | ✓ | رایگان، سریع، voice های محدود |
+| ElevenLabs | ✗ | ✓ | ✗ | کیفیت عالی، 29+ languages |
+| Gemini | ✗ | ✓ | ✓ | Neural voices، سنتز قوی |
+
+### استفاده
+
+```python
+from voice import VoiceManager, VoiceConfig, TTSProviderType
+
+# مثال 1: Edge TTS (رایگان)
+config = VoiceConfig(provider_type=TTSProviderType.EDGE_TTS)
+manager = VoiceManager(config)
+audio = manager.synthesize_text("سلام")
+manager.save_audio(audio, "output.mp3")
+
+# مثال 2: تبدیل به ElevenLabs
+manager.switch_provider(TTSProviderType.ELEVENLABS, api_key="...")
+audio = manager.synthesize_text("متن جدید")
+
+# مثال 3: تقسیم متن طولانی
+from voice import VoiceUtils
+chunks = VoiceUtils.split_long_text(long_text, max_length=5000)
+```
+
+### ترکیب با مناظره
+
+مسیر پیش‌نویس برای ترکیب TTS با خروجی مناظره:
+
+```python
+# بعد از تولید مناظره
+debate_manager = VoiceManager()
+
+for turn in debate_data["turns"]:
+    audio = debate_manager.synthesize_text(
+        turn["content"],
+        speaker_type=turn["speaker_type"]  # debater1, debater2, moderator
+    )
+    filename = VoiceUtils.generate_audio_filename(
+        topic=debate_topic,
+        speaker=turn["speaker"]
+    )
+    debate_manager.save_audio(audio, f"voice_output/{filename}")
+```
+
+---
+
+*آخرین به‌روزرسانی این سند بر اساس کد موجود در پروژه DebateAI — نسخه V2 (شامل Voice Module و UI Improvements).*
