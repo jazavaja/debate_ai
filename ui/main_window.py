@@ -21,6 +21,8 @@ from ui.widgets.debater_card import DebaterCard
 from ui.widgets.moderator_card import ModeratorCard
 from ui.widgets.debate_output import DebateOutput
 from utils.file_handler import FileHandler
+from settings.settings_manager import SettingsManager
+from settings.settings_dialog import SettingsDialog
 
 
 class MainWindow(QMainWindow):
@@ -59,6 +61,9 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(DARK_THEME)
         self.showMaximized()
         self._active_streaming_turns: dict[int, str] = {}
+
+        # بارگذاری تنظیمات ذخیره شده
+        self._apply_settings_to_engine()
 
     def _setup_ui(self):
         central = QWidget()
@@ -145,6 +150,11 @@ class MainWindow(QMainWindow):
         self.load_project_btn.setObjectName("load_btn")
         self.load_project_btn.clicked.connect(self._on_load_project)
         project_btn_layout.addWidget(self.load_project_btn)
+
+        self.settings_btn = QPushButton("⚙️ تنظیمات")
+        self.settings_btn.setObjectName("settings_btn")
+        self.settings_btn.clicked.connect(self._on_open_settings)
+        project_btn_layout.addWidget(self.settings_btn)
 
         left_layout.addLayout(project_btn_layout)
 
@@ -562,3 +572,29 @@ class MainWindow(QMainWindow):
         self.debate_engine.stop_debate()
         self.prompt_optimizer.cancel_all()
         event.accept()
+
+    # ------------------------------------------------------------------ #
+    # Settings
+    # ------------------------------------------------------------------ #
+
+    def _on_open_settings(self):
+        """باز کردن پنجره تنظیمات"""
+        dlg = SettingsDialog(self)
+        dlg.settings_saved.connect(self._apply_settings_to_engine)
+        dlg.exec_()
+
+    def _apply_settings_to_engine(self):
+        """اعمال تنظیمات ذخیره شده به LLM Client"""
+        settings = SettingsManager.load_settings()
+        providers_list = []
+        for p in settings.get_sorted_providers():
+            providers_list.append({
+                "provider": p.provider,
+                "model": p.model,
+                "api_key": p.api_key,
+                "base_uri": p.base_uri,
+                "auth_header_name": p.auth_header_name,
+                "auth_token_prefix": p.auth_token_prefix,
+            })
+        if providers_list:
+            self.llm_client.apply_settings(providers_list, settings.max_retries)
